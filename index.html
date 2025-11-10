@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="hi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- Open Graph for Facebook preview -->
+  <meta property="og:title" content="One-Click Video Metadata Tool — Upload & Get Thumbnail, Title, Description, Tags" />
+  <meta property="og:description" content="बस वीडियो अपलोड करें — तुरंत thumbnails, viral titles, SEO description और hashtags पाएं. Creators के लिए आसान और फ्री prototype." />
+  <meta property="og:image" content="https://example.com/thumbnail-for-fb.jpg" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://example.com/" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <title>One-Click Video Metadata Tool</title>
+  <style>
+    :root{--bg:#061023;--card:#071427;--muted:#9fb0c8;--accent:#ff6b35}
+    body{margin:0;font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#041022,#061027);color:#eaf4ff}
+    .wrap{max-width:980px;margin:24px auto;padding:18px}
+    .card{background:#072034;padding:16px;border-radius:12px;border:1px solid rgba(255,255,255,0.03)}
+    h1{margin:0;font-size:20px}
+    p.lead{color:var(--muted);margin:8px 0 12px}
+    input,select,button,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;margin-top:8px}
+    .row{display:flex;gap:8px}
+    .row select{flex:1}
+    button.cta{background:var(--accent);color:#071127;border:none;padding:10px 12px;border-radius:8px;cursor:pointer}
+    .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .thumb{width:160px;height:90px;border-radius:8px;background:#071a2b;display:flex;align-items:center;justify-content:center}
+    .meta{color:var(--muted);margin-top:8px;font-size:14px}
+    pre.output{white-space:pre-wrap;background:rgba(0,0,0,0.06);padding:12px;border-radius:8px;margin-top:12px;color:#eaf4ff;max-height:320px;overflow:auto}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>One-Click Video Metadata Tool</h1>
+      <p class="lead">Video upload करें — तुरंत Thumbnail, 5 Title options, SEO Description और Hashtags मिलेंगे. (Client-side prototype)</p>
+
+      <label style="font-weight:600">1) अपनी वीडियो फ़ाइल चुनें</label>
+      <input type="file" id="fileInput" accept="video/*" />
+
+      <label style="font-weight:600">2) भाषा चुनें</label>
+      <select id="langSelect">
+        <option value="hi-en">Hindi + English</option>
+        <option value="hi">Hindi</option>
+        <option value="en">English</option>
+      </select>
+
+      <div class="row" style="margin-top:8px">
+        <button id="generateBtn" class="cta">Generate Metadata</button>
+      </div>
+
+      <div id="fileMeta" class="meta"></div>
+      <div id="thumbs" class="thumbs"></div>
+
+      <h3 style="margin-top:12px">Preview & Output</h3>
+      <div id="preview" class="meta">Preview will appear here</div>
+      <pre id="output" class="output">Generated metadata will appear here.</pre>
+
+      <div style="margin-top:10px" class="meta">Tip: अगर आप Groq/OpenAI से advanced titles चाहते हैं तो नीचे proxy URL लिखें (server side required).</div>
+
+      <label style="font-weight:600;margin-top:8px">Optional: Your Groq proxy URL (server) — leave blank to use offline template</label>
+      <input type="text" id="proxyUrl" placeholder="https://yourproxy.example.com/api/groq (optional)" />
+
+    </div>
+
+    <p class="meta" style="text-align:center;margin-top:12px">Share this link on Facebook — users will see the preview and can open the tool directly.</p>
+  </div>
+
+<script>
+  // Lightweight client-side tool (no API key here)
+  const fileInput = document.getElementById('fileInput');
+  const generateBtn = document.getElementById('generateBtn');
+  const fileMeta = document.getElementById('fileMeta');
+  const thumbsBox = document.getElementById('thumbs');
+  const preview = document.getElementById('preview');
+  const output = document.getElementById('output');
+  const langSelect = document.getElementById('langSelect');
+  const proxyUrlInput = document.getElementById('proxyUrl');
+
+  function fileToURL(f){ return URL.createObjectURL(f); }
+  function formatTime(s){ const mm=Math.floor(s/60); const ss=Math.floor(s%60); return mm+':'+String(ss).padStart(2,'0'); }
+
+  async function extractFrames(file, percentages=[0.12,0.32,0.55,0.75,0.92]){
+    return new Promise((resolve,reject)=>{
+      const vid = document.createElement('video'); vid.preload='metadata'; vid.muted=true; vid.playsInline=true; vid.src = fileToURL(file);
+      vid.addEventListener('loadedmetadata', async ()=>{
+        const duration = vid.duration || 0; const canvas = document.createElement('canvas');
+        const w = Math.min(640, vid.videoWidth || 640); const h = Math.min(360, vid.videoHeight || 360);
+        canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'); const results=[];
+        const captureAt = (t)=> new Promise(res=>{
+          vid.currentTime = Math.max(0.05, Math.min(duration-0.05, t));
+          const onSeek = ()=>{ ctx.drawImage(vid,0,0,w,h); const data = canvas.toDataURL('image/jpeg',0.85); res({time:vid.currentTime,data}); };
+          vid.addEventListener('seeked', onSeek, {once:true});
+        });
+        (async ()=>{ for(const p of percentages){ const t=Math.max(0, Math.min(duration-0.05, duration*p)); results.push(await captureAt(t)); } resolve(results); })();
+      });
+      vid.addEventListener('error', e=> reject(e));
+    });
+  }
+
+  function renderFrames(frames, baseName){
+    thumbsBox.innerHTML=''; frames.forEach((f,i)=>{
+      const wrap=document.createElement('div'); wrap.style.width='160px';
+      const div=document.createElement('div'); div.className='thumb';
+      const img=document.createElement('img'); img.src=f.data; img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover';
+      div.appendChild(img);
+      const ov=document.createElement('div'); ov.className='overlay'; ov.style.position='absolute'; ov.style.bottom='6px'; ov.style.left='6px'; ov.style.background='rgba(0,0,0,0.45)'; ov.style.padding='4px 6px'; ov.style.borderRadius='6px'; ov.style.fontSize='12px'; ov.innerText = 'Frame '+(i+1)+' • '+formatTime(f.time);
+      div.appendChild(ov);
+      const dl=document.createElement('button'); dl.className='small'; dl.innerText='Download'; dl.style.marginTop='6px';
+      dl.addEventListener('click', ()=> { const a=document.createElement('a'); a.href=f.data; a.download=(baseName||'thumb')+'-'+(i+1)+'.jpg'; document.body.appendChild(a); a.click(); a.remove(); });
+      const use=document.createElement('button'); use.className='small'; use.innerText='Use'; use.style.marginLeft='6px';
+      use.addEventListener('click', ()=> { preview.innerHTML=''; const im=new Image(); im.src=f.data; im.style.maxWidth='100%'; preview.appendChild(im); });
+      wrap.appendChild(div); const row=document.createElement('div'); row.style.marginTop='6px'; row.appendChild(dl); row.appendChild(use); wrap.appendChild(row); thumbsBox.appendChild(wrap);
+    });
+  }
+
+  function extractKeywords(name){
+    if(!name) return ['viral','shorts'];
+    name = name.replace(/\.[^/.]+$/, '');
+    const parts = name.split(/[^\\p{L}\\d]+/u).filter(Boolean);
+    const filtered = parts.filter(p=>p.length>2).map(p=>p.toLowerCase());
+    return filtered.length?filtered:['viral','shorts'];
+  }
+
+  // Client-side fallback generator (no AI)
+  function generateFallbackMetadata(filename, lang){
+    const keywords = extractKeywords(filename);
+    const kw = keywords.slice(0,4).join(' ');
+    const titles = lang==='hi' ? [`${kw} - 30 सेकंड में देखें`, `${kw} | Must Watch`, `जानिए ${kw} के 5 तरीके`] :
+                    lang==='en' ? [`${kw} - Watch Now`, `${kw} | Quick Tips`, `Top 5 ${kw} Tricks`] :
+                    [`${kw} - जल्दी देखें`, `${kw} | Tips & Tricks`, `Top 5 ${kw}`];
+    const description = (lang==='hi' ? `${titles[0]}\n\nयह वीडियो ${keywords.slice(0,6).join(', ')} के बारे में है। अगर आपको पसंद आए तो लाइक करें और शेयर करें.` :
+                          `${titles[0]}\n\nThis video covers ${keywords.slice(0,6).join(', ')}. If you liked it, please like and share.`);
+    const tags = keywords.concat(['viral','shorts']).slice(0,30);
+    const hashtags = tags.map(t=> '#'+t.replace(/\s+/g,''));
+    return { titles, description, tags, hashtags };
+  }
+
+  async function callProxy(prompt, proxyUrl){
+    try {
+      const resp = await fetch(proxyUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ prompt }) });
+      if(!resp.ok) { const txt = await resp.text(); return { error: 'Proxy error: ' + txt }; }
+      const json = await resp.json();
+      // proxy expected to return final assistant text or parsed JSON. Try parse if needed.
+      if(json.result) return { ok:true, text: json.result };
+      return { ok:true, text: JSON.stringify(json) };
+    } catch(err){ return { error: err.message }; }
+  }
+
+  generateBtn.addEventListener('click', async ()=>{
+    output.innerText = ''; preview.innerText = 'Processing...';
+    const file = fileInput.files[0];
+    if(!file){ alert('कृपया वीडियो फ़ाइल चुनें'); return; }
+    fileMeta.innerText = `File: ${file.name} • ${(file.size/1024/1024).toFixed(2)} MB`;
+
+    try{
+      const frames = await extractFrames(file);
+      renderFrames(frames, file.name.replace(/\.[^/.]+$/,''));
+    } catch(e){ console.warn('frame extract failed', e); }
+
+    // preview
+    try{
+      const v = document.createElement('video'); v.controls=true; v.src = fileToURL(file); v.style.maxWidth='100%';
+      preview.innerHTML=''; preview.appendChild(v);
+    } catch(e){ preview.innerText = 'Preview not available'; }
+
+    // If proxy URL provided → call proxy with Groq prompt
+    const proxyUrl = proxyUrlInput.value.trim();
+    if(proxyUrl){
+      output.innerText = '⏳ Generating via proxy...';
+      const prompt = `Create JSON titles, description, hashtags and tags for video filename: "${file.name}". Return strict JSON with keys titles (array), description (string), hashtags (array), tags (array). Use ${langSelect.value} language.`;
+      const res = await callProxy(prompt, proxyUrl);
+      if(res.error){ output.innerText = 'Error: ' + res.error; return; }
+      output.innerText = res.text;
+      return;
+    }
+
+    // fallback (no proxy): generate simple metadata client-side
+    const meta = generateFallbackMetadata(file.name, langSelect.value);
+    output.innerText = JSON.stringify(meta, null, 2);
+  });
+
+</script>
+</body>
+</html>
